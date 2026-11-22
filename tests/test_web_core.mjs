@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   average,
+  averageAcrossPeriods,
   countRetakes,
-  exportCsv,
+  exportPeriodsCsv,
   filterSubjects,
   normalizeState,
   parseCsvImport,
@@ -64,15 +65,42 @@ test("imports quoted CSV subjects and decimal-comma grades", () => {
   ]);
 });
 
-test("exports an importable CSV with the pass status and summary", () => {
-  const csv = exportCsv(subjects, 70);
-  assert.match(csv, /Meilleure;100;95;Validé/);
-  assert.match(csv, /Faible;100;40;Reprise/);
+test("imports a legacy single-session CSV without treating its summary as a subject", () => {
+  const csv = "\uFEFFMatière;Coef;Note;Statut\r\n"
+    + "Maths;100;95;Validé\r\n"
+    + "Français;100;40;Reprise\r\n"
+    + "Moyenne;;67,50;\r\n";
   assert.deepEqual(parseCsvImport(csv).map(({ name, grade }) => [name, grade]), [
-    ["Sans note", null],
-    ["Moyenne", 70],
-    ["Meilleure", 95],
-    ["Faible", 40],
+    ["Maths", 95],
+    ["Français", 40],
+  ]);
+});
+
+test("exports and reimports both sessions with simple period and general averages", () => {
+  const periods = [
+    {
+      name: "1ère session",
+      subjects: [
+        { id: "1", name: "Maths", grade: 80 },
+        { id: "2", name: "Physique", grade: 60 },
+      ],
+    },
+    {
+      name: "2ème session",
+      subjects: [{ id: "3", name: "Histoire", grade: 90 }],
+    },
+  ];
+  const csv = exportPeriodsCsv(periods, 70);
+
+  assert.match(csv, /Session;Matière;Note;Statut/);
+  assert.match(csv, /1ère session;Moyenne;70,00;/);
+  assert.match(csv, /2ème session;Moyenne;90,00;/);
+  assert.match(csv, /Générale;Moyenne générale;76,67;/);
+  assert.equal(averageAcrossPeriods(periods), 76.66666666666667);
+  assert.deepEqual(parseCsvImport(csv), [
+    { session: "1ère session", name: "Maths", grade: 80 },
+    { session: "1ère session", name: "Physique", grade: 60 },
+    { session: "2ème session", name: "Histoire", grade: 90 },
   ]);
 });
 
@@ -102,4 +130,43 @@ test("accepts a full backup exported by the desktop application", () => {
   });
   assert.equal(imported.periods[0].subjects[0].addedOrder, 15);
   assert.equal(imported.settings.theme, "dark");
+  assert.equal(imported.periods[1].name, "2ème session");
+});
+
+test("migrates a one-period backup to two sessions without losing its grades", () => {
+  const imported = normalizeState({
+    version: 1,
+    profile: { level: "L1", name: "Test" },
+    periods: [{
+      id: "old-period",
+      name: "Période actuelle",
+      subjects: [{ id: "maths", name: "Maths", grade: 84 }],
+    }],
+    activePeriodId: "old-period",
+    sortMode: "added",
+  });
+
+  assert.equal(imported.periods[0].name, "1ère session");
+  assert.equal(imported.periods[0].subjects[0].grade, 84);
+  assert.equal(imported.periods[1].name, "2ème session");
+  assert.deepEqual(imported.periods[1].subjects, []);
+  assert.equal(imported.activePeriodId, "old-period");
+  assert.equal(imported.sessionsInitialized, true);
+});
+
+test("does not recreate a session that the user intentionally removed", () => {
+  const state = normalizeState({
+    version: 1,
+    profile: { level: "L1", name: "Test" },
+    periods: [{
+      id: "first",
+      name: "1ère session",
+      subjects: [],
+    }],
+    sessionsInitialized: true,
+    activePeriodId: "first",
+    sortMode: "added",
+  });
+
+  assert.equal(state.periods.length, 1);
 });

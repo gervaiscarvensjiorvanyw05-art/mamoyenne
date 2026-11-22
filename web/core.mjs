@@ -1,6 +1,7 @@
 export const PASS_MARKS = Object.freeze({ L1: 70, L2: 70, L3: 75, L4: 80 });
 
 export const SORT_MODES = Object.freeze(["added", "graded", "best", "worst", "custom"]);
+export const DEFAULT_PERIOD_NAMES = Object.freeze(["1ère session", "2ème session"]);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   language: "fr",
@@ -13,6 +14,7 @@ export function createEmptyState() {
     version: 1,
     profile: null,
     periods: [],
+    sessionsInitialized: true,
     activePeriodId: null,
     sortMode: "added",
     settings: { ...DEFAULT_SETTINGS },
@@ -22,6 +24,10 @@ export function createEmptyState() {
 export function newId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function createInitialPeriods() {
+  return DEFAULT_PERIOD_NAMES.map((name) => ({ id: newId(), name, subjects: [] }));
 }
 
 export function parseGrade(value) {
@@ -41,6 +47,10 @@ export function average(subjects) {
   const grades = subjects.filter((subject) => subject.grade !== null).map((subject) => subject.grade);
   if (grades.length === 0) return null;
   return grades.reduce((sum, grade) => sum + grade, 0) / grades.length;
+}
+
+export function averageAcrossPeriods(periods) {
+  return average(periods.flatMap((period) => period.subjects));
 }
 
 export function countRetakes(subjects, passMark) {
@@ -99,9 +109,13 @@ export function normalizeState(value) {
   if (!Array.isArray(value.periods) || value.periods.length === 0) {
     throw new Error("La sauvegarde doit contenir au moins une période.");
   }
+  if (value.sessionsInitialized !== undefined
+      && typeof value.sessionsInitialized !== "boolean") {
+    throw new Error("Le marqueur des sessions de la sauvegarde est invalide.");
+  }
   const ids = new Set();
   const periodNames = new Set();
-  const periods = value.periods.map((period) => {
+  let periods = value.periods.map((period) => {
     if (!period || typeof period.id !== "string" || !period.id
         || ids.has(period.id) || typeof period.name !== "string" || !period.name.trim()
         || !Array.isArray(period.subjects)) {
@@ -137,10 +151,17 @@ export function normalizeState(value) {
   if (!periods.some((period) => period.id === value.activePeriodId)) {
     throw new Error("La période active de la sauvegarde est introuvable.");
   }
+  if (periods.length === 1 && value.sessionsInitialized !== true) {
+    periods = [
+      { ...periods[0], name: DEFAULT_PERIOD_NAMES[0] },
+      { id: newId(), name: DEFAULT_PERIOD_NAMES[1], subjects: [] },
+    ];
+  }
   return {
     version: 1,
     profile: { level: profile.level, name: profile.name.trim() },
     periods,
+    sessionsInitialized: true,
     activePeriodId: value.activePeriodId,
     sortMode: value.sortMode,
     settings,
@@ -198,6 +219,7 @@ export function parseCsvImport(text) {
   const header = rows[0].map(removeAccents);
   const nameColumn = header.findIndex((value) => ["matiere", "subject"].includes(value));
   const gradeColumn = header.findIndex((value) => ["note", "grade"].includes(value));
+  const sessionColumn = header.findIndex((value) => ["session", "periode", "period"].includes(value));
   const hasHeader = nameColumn >= 0 && gradeColumn >= 0;
   const start = hasHeader ? 1 : 0;
   const nameIndex = hasHeader ? nameColumn : 0;
@@ -208,10 +230,17 @@ export function parseCsvImport(text) {
     const row = rows[rowIndex];
     const name = (row[nameIndex] || "").trim();
     const normalizedName = removeAccents(name);
-    if (!name || ["matiere", "subject"].includes(normalizedName)) continue;
-    if (["moyenne", "reprises"].includes(normalizedName) && !(row[1] || "").trim()) continue;
+    if (!name || ["matiere", "subject"].includes(normalizedName)
+        || (normalizedName.startsWith("moyenne")
+          && (sessionColumn >= 0 || !(row[1] || "").trim()))
+        || (normalizedName === "reprises" && !(row[1] || "").trim())) continue;
+    const session = hasHeader && sessionColumn >= 0 ? (row[sessionColumn] || "").trim() : "";
     try {
-      imported.push({ name, grade: parseGrade(row[noteIndex] || "") });
+      imported.push({
+        ...(session ? { session } : {}),
+        name,
+        grade: parseGrade(row[noteIndex] || ""),
+      });
     } catch (error) {
       throw new Error(`Note illisible pour « ${name} » : ${row[noteIndex] || ""}`);
     }
@@ -225,13 +254,31 @@ function csvCell(value) {
   return /[;"\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-export function exportCsv(subjects, passMark) {
-  const rows = [["Matière", "Coef", "Note", "Statut"]];
-  for (const subject of subjects) {
-    const status = subject.grade === null ? "En attente" : subject.grade >= passMark ? "Validé" : "Reprise";
-    rows.push([subject.name, "100", subject.grade === null ? "NULL" : String(subject.grade), status]);
+export function exportPeriodsCsv(periods, passMark) {
+  const rows = [["Session", "Matière", "Note", "Statut"]];
+  for (const period of periods) {
+    for (const subject of period.subjects) {
+      const status = subject.grade === null
+        ? "En attente" : subject.grade >= passMark ? "Validé" : "Reprise";
+      rows.push([
+        period.name,
+        subject.name,
+        subject.grade === null ? "NULL" : String(subject.grade),
+        status,
+      ]);
+    }
+    rows.push([
+      period.name,
+      "Moyenne",
+      average(period.subjects)?.toFixed(2).replace(".", ",") ?? "—",
+      "",
+    ]);
   }
-  rows.push(["Moyenne", "", average(subjects)?.toFixed(2).replace(".", ",") ?? "—", ""]);
-  rows.push(["Reprises", "", "", `${countRetakes(subjects, passMark)} reprise(s)`]);
+  rows.push([
+    "Générale",
+    "Moyenne générale",
+    averageAcrossPeriods(periods)?.toFixed(2).replace(".", ",") ?? "—",
+    "",
+  ]);
   return `\uFEFF${rows.map((row) => row.map(csvCell).join(";")).join("\r\n")}`;
 }

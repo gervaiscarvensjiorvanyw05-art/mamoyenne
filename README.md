@@ -3,7 +3,7 @@
 Petite application pour calculer sa moyenne et suivre ses reprises.
 **Aucune installation n'est nécessaire** (pas besoin de Python) : on télécharge un fichier et on l'ouvre.
 
-- Chaque matière a un coefficient de 100, les notes vont de 0 à 100.
+- La moyenne est simple : chaque matière compte de la même façon, et les notes vont de 0 à 100.
 - En dessous de la note de passage de votre niveau, la matière est une **reprise** :
 
   | Niveau | L1 | L2 | L3 | L4 |
@@ -65,9 +65,10 @@ lorsque la fenêtre est étroite.
 3. Tapez votre note puis appuyez sur **Entrée** pour l'enregistrer (le curseur passe à la matière suivante).
    Le bouton **Enregistrer** enregistre toutes les notes modifiées d'un coup.
    Laissez `NULL` si vous n'avez pas encore la note.
-4. Choisissez la période active au-dessus du résumé. **Gérer les périodes…** permet d'en créer,
-   renommer ou supprimer. Chaque période a sa propre liste ; vos données actuelles sont conservées dans
-   **Période actuelle**. Un import CSV concerne la période active.
+4. Les deux sessions universitaires (**1ère session** et **2ème session**) sont créées au départ.
+   Une mise à jour qui trouve une seule période conserve ses notes dans **1ère session** et crée la
+   **2ème session**. Les sessions restent indépendantes; **Gérer les périodes…** permet aussi d'en
+   créer, renommer ou supprimer.
 5. Au-dessus de la liste, choisissez l'ordre d'affichage : ordre d'ajout, matières notées d'abord,
    meilleures notes d'abord, pires notes d'abord ou ordre personnalisé. Les matières sans note restent
    en bas des tris par note. Glissez la poignée à deux traits **≡** pour créer un ordre personnalisé,
@@ -81,9 +82,10 @@ Autres boutons :
 - **Paramètres** : choisir le thème clair/sombre, la taille du texte, la langue (français/anglais),
   le nombre de sauvegardes conservées et les confirmations pour supprimer une matière ou importer des notes.
   La suppression d'une période et l'effacement complet demandent toujours confirmation.
-- **Exporter** : votre bulletin en PDF (à imprimer) ou en CSV (LibreOffice / Excel).
+- **Exporter** : un PDF ou un CSV unique comprenant toutes les sessions, la moyenne de chacune et la
+  moyenne générale. Le PDF garde aussi le résumé des reprises et notes manquantes.
 - **Importer** : reprendre un bulletin CSV, par exemple pour retrouver vos notes sur un autre ordinateur.
-  Les matières absentes sont ajoutées, celles déjà présentes prennent la note du fichier.
+  Les sessions du CSV sont reconnues; les matières absentes sont ajoutées et les notes existantes mises à jour.
 - **Sauvegardes** : après des modifications enregistrées, une copie locale est créée à la fermeture de
   l'application, avec un message de confirmation. Les 3 plus récentes sont conservées. Vous pouvez restaurer
   une copie depuis l'application ; une copie de sécurité de l'état actuel est créée avant le remplacement.
@@ -136,10 +138,15 @@ Ouvrez ensuite `http://localhost:8000`. Ne lancez pas `index.html` directement :
 ligne et l'installation nécessitent un serveur local ou HTTPS. Pour l'installer sur un téléphone, il
 faudra d'abord héberger cette version sur une adresse HTTPS.
 
-Les données de la PWA restent dans le stockage local du navigateur et ne se synchronisent pas entre
-appareils. Pour transférer toutes les périodes depuis l'application de bureau, choisissez **Exporter**,
+Les deux sessions sont créées lors de la création d'un profil. Les données de la PWA restent dans le
+stockage local du navigateur et ne se synchronisent pas entre appareils. Pour transférer les périodes
+depuis l'application de bureau, choisissez **Exporter**,
 puis **JSON · toutes les périodes (application mobile)** ; dans la PWA, ouvrez **Paramètres → Restaurer
-une sauvegarde JSON**. L'import CSV d'une période est également disponible.
+une sauvegarde JSON**. Le CSV et le bulletin PDF rassemblent toutes les sessions et présentent les
+moyennes de session ainsi que la moyenne générale. Les moyennes donnent le même poids à chaque note;
+les crédits ECTS et coefficients ne sont pas utilisés. Dans la PWA, **Imprimer / Enregistrer en PDF**
+ouvre la fenêtre d'impression du navigateur. Sur iPhone, utilisez le partage de l'aperçu pour enregistrer
+le PDF dans Fichiers.
 
 Les tests du cœur PWA se lancent avec `node --test tests\test_web_core.mjs`.
 

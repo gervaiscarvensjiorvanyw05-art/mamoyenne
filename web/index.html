@@ -121,8 +121,32 @@
               <input id="csv-input" type="file" accept=".csv,text/csv">
             </label>
             <button id="export-csv" class="secondary-button" type="button" data-i18n="export-csv"></button>
+            <button id="export-pdf" class="secondary-button" type="button" data-i18n="export-pdf"></button>
           </section>
           <p class="privacy-note" data-i18n="local-data-note"></p>
+        </section>
+
+        <section id="print-report" class="print-report" hidden>
+          <header class="print-header">
+            <h1 id="print-title"></h1>
+            <p id="print-subtitle"></p>
+          </header>
+          <dl class="print-summary">
+            <div>
+              <dt data-i18n="print-average"></dt>
+              <dd id="print-average"></dd>
+            </div>
+            <div>
+              <dt data-i18n="print-retakes"></dt>
+              <dd id="print-retakes"></dd>
+            </div>
+            <div>
+              <dt data-i18n="print-subject-count"></dt>
+              <dd id="print-subject-count"></dd>
+            </div>
+          </dl>
+          <div id="print-periods"></div>
+          <footer id="print-footer" class="print-footer"></footer>
         </section>
       </main>
     </div>
