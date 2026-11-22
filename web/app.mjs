@@ -22,8 +22,6 @@ const DATABASE_VERSION = 1;
 const STORE_NAME = "application";
 const STATE_KEY = "state";
 const ICON_PATHS = {
-  up: ["M12 19V5M5 12l7-7 7 7"],
-  down: ["M12 5v14m0 0 7-7m-7 7-7-7"],
   plus: ["M12 5v14M5 12h14"],
   trash: ["M3 6h18", "M8 6V4h8v2m-11 0 1 15h12l1-15", "M10 11v6m4-6v6"],
 };
@@ -58,7 +56,7 @@ const TEXT = {
     search: "Rechercher",
     "search-placeholder": "Nom d'une matière",
     "add-subject": "Ajouter une matière",
-    "custom-order-hint": "Utilisez les flèches pour ajuster l'ordre des matières.",
+    "custom-order-hint": "Faites glisser la poignée pour déplacer une matière. Au clavier, utilisez les flèches haut et bas.",
     "empty-title": "Aucune matière pour le moment",
     "empty-start": "Ajoutez votre première matière pour commencer.",
     "empty-search": "Aucune matière ne correspond à cette recherche.",
@@ -100,8 +98,8 @@ const TEXT = {
     "subject-count": (count) => `${count} matière${count > 1 ? "s" : ""} au total`,
     "graded-count": (count) => `${count} sur ${count === 1 ? "1 matière notée" : "les matières notées"}`,
     "retake-count": (count) => count === 0 ? "Aucune reprise" : `${count} reprise${count > 1 ? "s" : ""}`,
-    "move-up": (name) => `Déplacer ${name} vers le haut`,
-    "move-down": (name) => `Déplacer ${name} vers le bas`,
+    "reorder-subject": (name) => `Réorganiser ${name}. Faites glisser la poignée ou utilisez les flèches haut et bas.`,
+    "subject-reordered": (name) => `${name} a été déplacée.`,
     "delete-subject": (name) => `Supprimer ${name}`,
     "grade-placeholder": "NULL",
     "profile-button": "Profil",
@@ -165,7 +163,7 @@ const TEXT = {
     search: "Search",
     "search-placeholder": "Subject name",
     "add-subject": "Add a subject",
-    "custom-order-hint": "Use the arrows to change the order of subjects.",
+    "custom-order-hint": "Drag the handle to move a subject. On a keyboard, use the up and down arrow keys.",
     "empty-title": "No subjects yet",
     "empty-start": "Add your first subject to get started.",
     "empty-search": "No subjects match this search.",
@@ -207,8 +205,8 @@ const TEXT = {
     "subject-count": (count) => `${count} subject${count === 1 ? "" : "s"} total`,
     "graded-count": (count) => `${count} graded`,
     "retake-count": (count) => count === 0 ? "No retakes" : `${count} retake${count === 1 ? "" : "s"}`,
-    "move-up": (name) => `Move ${name} up`,
-    "move-down": (name) => `Move ${name} down`,
+    "reorder-subject": (name) => `Reorder ${name}. Drag the handle or use the up and down arrow keys.`,
+    "subject-reordered": (name) => `${name} was moved.`,
     "delete-subject": (name) => `Delete ${name}`,
     "grade-placeholder": "—",
     "profile-button": "Profile",
@@ -252,6 +250,7 @@ let undoItem = null;
 let undoTimer;
 let toastTimer;
 let installPrompt = null;
+let reorderDrag = null;
 
 function createIcon(name) {
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -262,6 +261,18 @@ function createIcon(name) {
   icon.setAttribute("stroke-width", "1.8");
   icon.setAttribute("stroke-linecap", "round");
   icon.setAttribute("stroke-linejoin", "round");
+  if (name === "grip") {
+    for (const [x, y] of [[9, 5], [9, 12], [9, 19], [15, 5], [15, 12], [15, 19]]) {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("r", "1.35");
+      dot.setAttribute("fill", "currentColor");
+      dot.setAttribute("stroke", "none");
+      icon.append(dot);
+    }
+    return icon;
+  }
   for (const pathData of ICON_PATHS[name]) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", pathData);
@@ -395,6 +406,27 @@ function createButton(className, label, action, ariaLabel = label, iconName = nu
   return button;
 }
 
+function createReorderHandle(subject) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "reorder-handle";
+  handle.dataset.subjectId = subject.id;
+  handle.setAttribute("aria-label", t("reorder-subject", subject.name));
+  handle.setAttribute("aria-describedby", "custom-order-hint");
+  handle.append(createIcon("grip"));
+  handle.addEventListener("pointerdown", (event) => startReorderDrag(event, subject.id));
+  handle.addEventListener("pointermove", updateReorderDrag);
+  handle.addEventListener("pointerup", finishReorderDrag);
+  handle.addEventListener("pointercancel", cancelReorderDrag);
+  handle.addEventListener("keydown", (event) => {
+    const direction = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    void moveSubject(subject.id, direction);
+  });
+  return handle;
+}
+
 function showToast(message, action = null) {
   const toast = byId("toast");
   clearTimeout(toastTimer);
@@ -435,7 +467,7 @@ function renderSubjects() {
   const list = byId("subject-list");
   const fragment = document.createDocumentFragment();
   byId("sort-select").value = state.sortMode;
-  byId("custom-order-hint").hidden = state.sortMode !== "custom";
+  byId("custom-order-hint").hidden = state.sortMode !== "custom" || Boolean(query.trim());
   byId("custom-order-hint").textContent = t("custom-order-hint");
 
   for (const subject of subjects) {
@@ -449,23 +481,7 @@ function renderSubjects() {
     const nameCell = document.createElement("div");
     nameCell.className = "subject-name-cell";
     if (state.sortMode === "custom" && !query.trim()) {
-      const originalIndex = period.subjects.findIndex((item) => item.id === subject.id);
-      nameCell.append(createButton(
-        "reorder-button",
-        "",
-        () => moveSubject(subject.id, -1),
-        t("move-up", subject.name),
-        "up",
-      ));
-      const down = createButton(
-        "reorder-button",
-        "",
-        () => moveSubject(subject.id, 1),
-        t("move-down", subject.name),
-        "down",
-      );
-      down.disabled = originalIndex === period.subjects.length - 1;
-      nameCell.append(down);
+      nameCell.append(createReorderHandle(subject));
     }
     nameCell.append(name);
 
@@ -567,10 +583,87 @@ async function moveSubject(id, direction) {
   const index = period.subjects.findIndex((subject) => subject.id === id);
   const destination = index + direction;
   if (index < 0 || destination < 0 || destination >= period.subjects.length) return;
-  await updateState(() => {
+  const subject = period.subjects[index];
+  const saved = await updateState(() => {
     const subjects = activePeriod().subjects;
     [subjects[index], subjects[destination]] = [subjects[destination], subjects[index]];
+  }, t("subject-reordered", subject.name));
+  if (saved) focusReorderHandle(id);
+}
+
+function focusReorderHandle(id) {
+  const handle = [...document.querySelectorAll(".reorder-handle")]
+    .find((element) => element.dataset.subjectId === id);
+  handle?.focus({ preventScroll: true });
+}
+
+function clearReorderIndicators() {
+  byId("subject-list").querySelectorAll(".subject-card").forEach((card) => {
+    card.classList.remove("is-dragging", "drop-before", "drop-after");
   });
+}
+
+function startReorderDrag(event, subjectId) {
+  if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+  event.preventDefault();
+  event.currentTarget.setPointerCapture(event.pointerId);
+  reorderDrag = {
+    subjectId,
+    pointerId: event.pointerId,
+    startY: event.clientY,
+    moved: false,
+    targetId: null,
+    after: false,
+  };
+}
+
+function updateReorderDrag(event) {
+  if (!reorderDrag || reorderDrag.pointerId !== event.pointerId) return;
+  if (!reorderDrag.moved && Math.abs(event.clientY - reorderDrag.startY) < 6) return;
+  event.preventDefault();
+  reorderDrag.moved = true;
+  const sourceCard = [...byId("subject-list").querySelectorAll(".subject-card")]
+    .find((card) => card.dataset.subjectId === reorderDrag.subjectId);
+  clearReorderIndicators();
+  sourceCard?.classList.add("is-dragging");
+  const targetCard = document.elementFromPoint(event.clientX, event.clientY)?.closest(".subject-card");
+  if (!targetCard || targetCard.dataset.subjectId === reorderDrag.subjectId) {
+    reorderDrag.targetId = null;
+    return;
+  }
+  const bounds = targetCard.getBoundingClientRect();
+  reorderDrag.targetId = targetCard.dataset.subjectId;
+  reorderDrag.after = event.clientY > bounds.top + bounds.height / 2;
+  targetCard.classList.add(reorderDrag.after ? "drop-after" : "drop-before");
+}
+
+async function finishReorderDrag(event) {
+  if (!reorderDrag || reorderDrag.pointerId !== event.pointerId) return;
+  updateReorderDrag(event);
+  const drag = reorderDrag;
+  reorderDrag = null;
+  clearReorderIndicators();
+  if (!drag.moved || !drag.targetId) return;
+
+  const subjects = activePeriod().subjects;
+  const sourceIndex = subjects.findIndex((subject) => subject.id === drag.subjectId);
+  const targetIndex = subjects.findIndex((subject) => subject.id === drag.targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+  const movedSubject = subjects[sourceIndex];
+  const saved = await updateState(() => {
+    const currentSubjects = activePeriod().subjects;
+    const [item] = currentSubjects.splice(sourceIndex, 1);
+    const targetPosition = targetIndex + (drag.after ? 1 : 0);
+    const insertIndex = targetPosition > sourceIndex ? targetPosition - 1 : targetPosition;
+    currentSubjects.splice(insertIndex, 0, item);
+  }, t("subject-reordered", movedSubject.name));
+  if (saved) focusReorderHandle(drag.subjectId);
+}
+
+function cancelReorderDrag(event) {
+  if (!reorderDrag || reorderDrag.pointerId !== event.pointerId) return;
+  reorderDrag = null;
+  clearReorderIndicators();
 }
 
 async function deleteSubject(id) {
