@@ -21,11 +21,19 @@ const DATABASE_NAME = "mamoyenne-pwa";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "application";
 const STATE_KEY = "state";
+const ICON_PATHS = {
+  up: ["M12 19V5M5 12l7-7 7 7"],
+  down: ["M12 5v14m0 0 7-7m-7 7-7-7"],
+  plus: ["M12 5v14M5 12h14"],
+  trash: ["M3 6h18", "M8 6V4h8v2m-11 0 1 15h12l1-15", "M10 11v6m4-6v6"],
+};
 
 const TEXT = {
   fr: {
     install: "Installer",
     settings: "Paramètres",
+    menu: "Menu",
+    "data-menu-title": "Import et export",
     welcome: "Bienvenue sur MaMoyenne",
     "setup-title": "Suivez vos notes simplement",
     "setup-description": "Votre profil et vos notes sont enregistrés sur cet appareil.",
@@ -131,6 +139,8 @@ const TEXT = {
   en: {
     install: "Install",
     settings: "Settings",
+    menu: "Menu",
+    "data-menu-title": "Import and export",
     welcome: "Welcome to MaMoyenne",
     "setup-title": "Keep track of your grades",
     "setup-description": "Your profile and grades are stored on this device.",
@@ -243,6 +253,23 @@ let undoTimer;
 let toastTimer;
 let installPrompt = null;
 
+function createIcon(name) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.8");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  for (const pathData of ICON_PATHS[name]) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    icon.append(path);
+  }
+  return icon;
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -303,6 +330,8 @@ function updateStaticText() {
     element.textContent = t(element.dataset.i18n);
   });
   byId("search-input").placeholder = t("search-placeholder");
+  byId("action-menu-trigger").setAttribute("aria-label", t("menu"));
+  byId("action-menu-panel").setAttribute("aria-label", t("menu"));
   byId("install-button").setAttribute("aria-label", t("install"));
   byId("profile-button").setAttribute("aria-label", t("profile-button"));
   byId("settings-button").setAttribute("aria-label", t("settings"));
@@ -311,7 +340,6 @@ function updateStaticText() {
   });
   document.querySelector(".summary-grid").setAttribute("aria-label", t("average"));
   document.querySelector(".subject-tools").setAttribute("aria-label", t("sort"));
-  document.querySelector(".data-actions").setAttribute("aria-label", t("export-csv"));
   document.body.dataset.theme = state.settings.theme;
   document.body.dataset.textSize = state.settings.textSize;
   document.querySelector('meta[name="theme-color"]').content =
@@ -356,11 +384,12 @@ function renderSummary() {
     `${state.profile.name} · ${state.profile.level} · ${state.settings.language === "fr" ? "Passage" : "Pass mark"} ${passMark}`;
 }
 
-function createButton(className, label, action, ariaLabel = label) {
+function createButton(className, label, action, ariaLabel = label, iconName = null) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = className;
-  button.textContent = label;
+  if (iconName) button.append(createIcon(iconName));
+  else button.textContent = label;
   button.setAttribute("aria-label", ariaLabel);
   button.addEventListener("click", action);
   return button;
@@ -421,12 +450,20 @@ function renderSubjects() {
     nameCell.className = "subject-name-cell";
     if (state.sortMode === "custom" && !query.trim()) {
       const originalIndex = period.subjects.findIndex((item) => item.id === subject.id);
-      nameCell.append(
-        createButton("reorder-button", "↑", () => moveSubject(subject.id, -1),
-          t("move-up", subject.name)),
+      nameCell.append(createButton(
+        "reorder-button",
+        "",
+        () => moveSubject(subject.id, -1),
+        t("move-up", subject.name),
+        "up",
+      ));
+      const down = createButton(
+        "reorder-button",
+        "",
+        () => moveSubject(subject.id, 1),
+        t("move-down", subject.name),
+        "down",
       );
-      const down = createButton("reorder-button", "↓", () => moveSubject(subject.id, 1),
-        t("move-down", subject.name));
       down.disabled = originalIndex === period.subjects.length - 1;
       nameCell.append(down);
     }
@@ -472,8 +509,13 @@ function renderSubjects() {
       ? t("pending")
       : subject.grade >= passMark ? t("validated") : t("retake");
 
-    const remove = createButton("delete-button", "×", () => deleteSubject(subject.id),
-      t("delete-subject", subject.name));
+    const remove = createButton(
+      "delete-button",
+      "",
+      () => deleteSubject(subject.id),
+      t("delete-subject", subject.name),
+      "trash",
+    );
     card.append(nameCell, gradeCell, status, remove);
     fragment.append(card);
   }
@@ -494,6 +536,9 @@ function render() {
   byId("profile-name").value = state.profile?.name || "";
   byId("profile-level").value = state.profile?.level || "L1";
   byId("profile-button").hidden = !hasProfile;
+  document.querySelectorAll("[data-profile-action]").forEach((element) => {
+    element.hidden = !hasProfile;
+  });
   byId("language-select").value = state.settings.language;
   byId("theme-select").value = state.settings.theme;
   byId("text-size-select").value = state.settings.textSize;
@@ -646,6 +691,19 @@ function bindEvents() {
   byId("period-form").addEventListener("submit", (event) => event.preventDefault());
   byId("settings-form").addEventListener("submit", (event) => event.preventDefault());
 
+  const actionMenu = byId("action-menu");
+  actionMenu.addEventListener("click", (event) => {
+    if (event.target.closest(".menu-item")) actionMenu.open = false;
+  });
+  document.addEventListener("click", (event) => {
+    if (!actionMenu.contains(event.target)) actionMenu.open = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !actionMenu.open) return;
+    actionMenu.open = false;
+    byId("action-menu-trigger").focus();
+  });
+
   byId("setup-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const name = byId("profile-name").value.trim();
@@ -757,6 +815,10 @@ function bindEvents() {
     await updateState(() => { state.settings.textSize = event.target.value; });
   });
   byId("settings-button").addEventListener("click", () => openDialog("settings-dialog"));
+  byId("csv-import-button").addEventListener("click", () => {
+    actionMenu.open = false;
+    byId("csv-input").click();
+  });
   byId("profile-button")?.addEventListener("click", () => {
     byId("edit-profile-name").value = state.profile?.name || "";
     byId("edit-profile-level").value = state.profile?.level || "L1";

@@ -81,7 +81,8 @@ button:disabled {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+.menu-trigger:focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 2px;
 }
@@ -98,8 +99,7 @@ select:focus-visible {
 .top-actions,
 .period-row,
 .dialog-heading,
-.dialog-actions,
-.data-actions {
+.dialog-actions {
   display: flex;
   align-items: center;
 }
@@ -134,7 +134,102 @@ select:focus-visible {
 
 .top-actions {
   flex: 0 0 auto;
-  gap: 7px;
+}
+
+.action-menu {
+  position: relative;
+}
+
+.menu-trigger {
+  display: grid;
+  width: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.menu-trigger::marker {
+  content: "";
+}
+
+.menu-trigger:hover,
+.action-menu[open] > .menu-trigger {
+  border-color: var(--blue);
+  background: var(--surface-muted);
+}
+
+.menu-trigger svg {
+  width: 21px;
+  height: 21px;
+}
+
+.action-menu-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: 260px;
+  max-width: calc(100vw - 28px);
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--surface-muted);
+}
+
+.menu-item svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.menu-heading {
+  margin: 3px 10px 1px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 4px 5px;
+  background: var(--line);
 }
 
 .icon-button,
@@ -325,6 +420,12 @@ input::placeholder {
   white-space: nowrap;
 }
 
+.add-button svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+}
+
 .order-hint {
   margin: 2px 0 10px;
   font-size: 0.84rem;
@@ -412,7 +513,6 @@ input::placeholder {
 
 .delete-button {
   color: var(--red);
-  font-size: 1.55rem;
 }
 
 .delete-button:hover,
@@ -425,7 +525,13 @@ input::placeholder {
 .reorder-button {
   min-width: 30px;
   min-height: 32px;
-  font-size: 1rem;
+}
+
+.delete-button svg,
+.reorder-button svg,
+.close-button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .empty-card {
@@ -439,12 +545,6 @@ input::placeholder {
 
 .empty-card span {
   color: var(--muted);
-}
-
-.data-actions {
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
 }
 
 .file-button {
@@ -712,20 +812,6 @@ dialog::backdrop {
 
   .brand h1 {
     font-size: 1.08rem;
-  }
-
-  .top-actions {
-    gap: 5px;
-  }
-
-  .icon-button {
-    min-width: 42px;
-    padding: 8px 9px;
-    font-size: 0.84rem;
-  }
-
-  .top-actions .icon-button [data-i18n] {
-    display: none;
   }
 
   .period-row {
