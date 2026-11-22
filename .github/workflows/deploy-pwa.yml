@@ -33,7 +33,12 @@ jobs:
       - name: Préparer le site
         uses: actions/upload-pages-artifact@v4
         with:
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: web
+      - name: Attendre la disponibilité de l’artefact
+        run: sleep 5
       - name: Publier la PWA
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
