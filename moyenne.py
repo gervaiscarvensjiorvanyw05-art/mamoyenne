@@ -13,6 +13,7 @@ import tkinter.font as tkfont
 from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
+import unicodedata
 
 NOM_APP = "MaMoyenne"
 ANCIEN_NOM_APP = "CalculMoyenne"  # dossier de données avant le changement de nom
@@ -33,7 +34,9 @@ TRI_MEILLEURES = "Meilleures notes d'abord"
 TRI_PIRES = "Pires notes d'abord"
 TRI_PERSONNALISE = "Ordre personnalisé"
 OPTIONS_TRI = (TRI_ORDRE_AJOUT, TRI_NOTEES, TRI_MEILLEURES, TRI_PIRES, TRI_PERSONNALISE)
-PERIODE_INITIALE = "Période actuelle"
+PERIODE_PREMIERE_SESSION = "1ère session"
+PERIODE_DEUXIEME_SESSION = "2ème session"
+PERIODE_INITIALE = PERIODE_PREMIERE_SESSION
 PARAMETRES_DEFAUT = {
     "theme": "clair",
     "taille_texte": "normale",
@@ -67,10 +70,10 @@ TRADUCTIONS_EN = {
     "Notes de passage et reprises": "Pass marks and retakes",
     "L1 : 70    L2 : 70    L3 : 75    L4 : 80": "L1: 70    L2: 70    L3: 75    L4: 80",
     "Une matière notée en dessous de la note de passage de votre niveau est une reprise (en rouge).": "A subject grade below your level's pass mark is a retake (shown in red).",
-    "Chaque matière a un coefficient de 100.": "Every subject has a coefficient of 100.",
+    "Toutes les matières ont le même poids dans la moyenne.": "All subjects have equal weight in the average.",
     "Matières": "Subjects",
     "Choisissez la période active au-dessus du résumé. Dans Gérer les périodes, créez, renommez ou supprimez une période ; sa suppression efface ses matières et demande confirmation.": "Choose the active period above the summary. In Manage periods, create, rename, or delete a period; deleting one removes its subjects and asks for confirmation.",
-    "Les données existantes sont conservées dans « Période actuelle ». Un import CSV ajoute ou met à jour les matières de la période active.": "Existing data is kept in “Current period”. CSV imports add or update subjects in the active period.",
+    "Les notes existantes sont conservées dans « 1ère session » ; la « 2ème session » est ajoutée.": "Existing grades are kept in “1st session”; “2nd session” is added.",
     "Au-dessus de la liste, choisissez l'ordre d'ajout, les matières notées d'abord, les meilleures ou les pires notes d'abord, ou un ordre personnalisé. Les matières sans note restent en bas des tris par note.": "Above the list, choose added order, graded first, highest or lowest grades first, or a custom order. Ungraded subjects stay at the bottom of grade-based sorts.",
     "Le champ Rechercher filtre la liste par nom sans changer le résumé.": "The Search field filters the list by name without changing the summary.",
     "Le classement est actualisé lorsque vous enregistrez une note.": "The ranking updates when you save a grade.",
@@ -97,6 +100,8 @@ TRADUCTIONS_EN = {
     "Paramètres": "Settings",
     "Période :": "Period:",
     "Période actuelle": "Current period",
+    "1ère session": "1st session",
+    "2ème session": "2nd session",
     "Note de passage": "Pass mark",
     "NULL = note pas encore connue, non comptée dans la moyenne": "NULL = grade not yet known; not included in the average",
     "Gérer les périodes…": "Manage periods…",
@@ -234,13 +239,14 @@ MODE_EMPLOI = [
     ("Notes de passage et reprises", [
         "L1 : 70    L2 : 70    L3 : 75    L4 : 80",
         "Une matière notée en dessous de la note de passage de votre niveau est une reprise (en rouge).",
-        "Chaque matière a un coefficient de 100.",
+        "Toutes les matières ont le même poids dans la moyenne.",
     ]),
     ("Matières", [
         "Choisissez la période active au-dessus du résumé. Dans Gérer les périodes, créez, renommez "
         "ou supprimez une période ; sa suppression efface ses matières et demande confirmation.",
-        "Les données existantes sont conservées dans « Période actuelle ». Un import CSV ajoute ou met "
-        "à jour les matières de la période active.",
+        "Les nouvelles installations commencent avec « 1ère session » et « 2ème session ». Les notes "
+        "déjà enregistrées dans une seule période sont conservées dans « 1ère session » ; la seconde "
+        "session est ajoutée.",
         "Au-dessus de la liste, choisissez l'ordre d'ajout, les matières notées d'abord, "
         "les meilleures ou les pires notes d'abord, ou un ordre personnalisé. Les matières sans note "
         "restent en bas des tris par note.",
@@ -268,7 +274,9 @@ MODE_EMPLOI = [
         "Tout effacer : supprime votre profil et toutes vos matières pour recommencer à zéro.",
     ]),
 ]
-LIGNES_IGNOREES = {"matière", "matiere", "moyenne", "reprises"}  # en-tête et totaux d'un bulletin exporté
+LIGNES_IGNOREES = {
+    "matiere", "moyenne", "moyenne de la session", "moyenne generale", "reprises",
+}
 
 # Taille de police de référence pour une fenêtre de LARGEUR_REF x HAUTEUR_REF
 TAILLE_REF, LARGEUR_REF, HAUTEUR_REF = 11, 900, 550
@@ -324,6 +332,11 @@ class Base:
             colonnes_matieres = {ligne[1] for ligne in self.cnx.execute("PRAGMA table_info(matieres)")}
             if not {"periode_id", "position"} <= colonnes_matieres:
                 return True
+        if "periodes" in tables:
+            nombre = self.cnx.execute("SELECT COUNT(*) FROM periodes").fetchone()[0]
+            version_sessions = self.cnx.execute("PRAGMA user_version").fetchone()[0]
+            if nombre < 2 and version_sessions < 1:
+                return True
         return False
 
     def _marquer_modifie(self):
@@ -367,22 +380,40 @@ class Base:
                 self.cnx.execute("ALTER TABLE matieres ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
                 self.cnx.execute("UPDATE matieres SET position = id")
 
-            periode = self.cnx.execute("SELECT id FROM periodes ORDER BY position, id LIMIT 1").fetchone()
-            if periode is None:
+            version_sessions = self.cnx.execute("PRAGMA user_version").fetchone()[0]
+            periodes = self.cnx.execute(
+                "SELECT id, nom FROM periodes ORDER BY position, id").fetchall()
+            if not periodes:
                 curseur = self.cnx.execute(
-                    "INSERT INTO periodes (nom, position, actif) VALUES (?, 0, 1)", (PERIODE_INITIALE,))
+                    "INSERT INTO periodes (nom, position, actif) VALUES (?, 0, 1)",
+                    (PERIODE_PREMIERE_SESSION,))
                 periode_id = curseur.lastrowid
+                self.cnx.execute(
+                    "INSERT INTO periodes (nom, position, actif) VALUES (?, 1, 0)",
+                    (PERIODE_DEUXIEME_SESSION,))
+                periodes = [(periode_id, PERIODE_PREMIERE_SESSION)]
+            elif len(periodes) == 1:
+                periode_id, nom = periodes[0]
+                if version_sessions < 1:
+                    if nom.casefold() != PERIODE_PREMIERE_SESSION.casefold():
+                        self.cnx.execute(
+                            "UPDATE periodes SET nom = ?, position = 0 WHERE id = ?",
+                            (PERIODE_PREMIERE_SESSION, periode_id))
+                    self.cnx.execute(
+                        "INSERT INTO periodes (nom, position, actif) VALUES (?, 1, 0)",
+                        (PERIODE_DEUXIEME_SESSION,))
             else:
-                periode_id = periode[0]
-                actives = [ligne[0] for ligne in self.cnx.execute(
-                    "SELECT id FROM periodes WHERE actif = 1 ORDER BY position, id")]
-                if not actives:
-                    self.cnx.execute("UPDATE periodes SET actif = 1 WHERE id = ?", (periode_id,))
-                elif len(actives) > 1:
-                    self.cnx.execute("UPDATE periodes SET actif = 0")
-                    self.cnx.execute("UPDATE periodes SET actif = 1 WHERE id = ?", (actives[0],))
-                periode_id = self.cnx.execute(
-                    "SELECT id FROM periodes WHERE actif = 1").fetchone()[0]
+                periode_id = periodes[0][0]
+
+            actives = [ligne[0] for ligne in self.cnx.execute(
+                "SELECT id FROM periodes WHERE actif = 1 ORDER BY position, id")]
+            if not actives:
+                self.cnx.execute("UPDATE periodes SET actif = 1 WHERE id = ?", (periode_id,))
+            elif len(actives) > 1:
+                self.cnx.execute("UPDATE periodes SET actif = 0")
+                self.cnx.execute("UPDATE periodes SET actif = 1 WHERE id = ?", (actives[0],))
+            periode_id = self.cnx.execute(
+                "SELECT id FROM periodes WHERE actif = 1").fetchone()[0]
 
             if "periode_id" not in colonnes_matieres:
                 self.cnx.execute("ALTER TABLE matieres RENAME TO matieres_ancienne")
@@ -406,6 +437,7 @@ class Base:
             self.cnx.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_periodes_une_active "
                 "ON periodes(actif) WHERE actif = 1")
+            self.cnx.execute("PRAGMA user_version = 1")
 
     def _creer_sauvegarde(self, nom, nettoyer=True):
         self.dossier_sauvegardes.mkdir(parents=True, exist_ok=True)
@@ -597,9 +629,9 @@ class Base:
                     "SELECT id, nom, coef, note FROM matieres "
                     "WHERE periode_id = ? ORDER BY position, id", (periode_id,))]
 
-    def ajouter_matiere(self, nom, coef):
+    def ajouter_matiere(self, nom, coef, periode_id=None):
         with self.cnx:
-            periode_id = self.periode_active()["id"]
+            periode_id = periode_id if periode_id is not None else self.periode_active()["id"]
             position = self.cnx.execute(
                 "SELECT COALESCE(MAX(position) + 1, 0) FROM matieres WHERE periode_id = ?",
                 (periode_id,)).fetchone()[0]
@@ -647,18 +679,20 @@ class Base:
         self._marquer_modifie()
         return id_restaure
 
-    def changer_note(self, matiere, note):
+    def changer_note(self, matiere, note, periode_id=None):
         with self.cnx:
+            periode_id = periode_id if periode_id is not None else self.periode_active()["id"]
             self.cnx.execute("UPDATE matieres SET note = ? WHERE nom = ? AND periode_id = ?",
-                             (note, matiere, self.periode_active()["id"]))
+                             (note, matiere, periode_id))
         self._marquer_modifie()
 
     def tout_effacer(self):
         with self.cnx:
             self.cnx.execute("DELETE FROM matieres")
             self.cnx.execute("DELETE FROM periodes")
-            self.cnx.execute(
-                "INSERT INTO periodes (nom, position, actif) VALUES (?, 0, 1)", (PERIODE_INITIALE,))
+            self.cnx.executemany(
+                "INSERT INTO periodes (nom, position, actif) VALUES (?, ?, ?)",
+                ((PERIODE_PREMIERE_SESSION, 0, 1), (PERIODE_DEUXIEME_SESSION, 1, 0)))
             self.cnx.execute("DELETE FROM profil")
         self._marquer_modifie()
 
@@ -666,10 +700,9 @@ class Base:
 # ---------- Calculs ----------
 
 def moyenne(matieres):
-    """Moyenne pondérée par les coefficients ; les notes NULL sont ignorées."""
+    """Moyenne simple des notes connues."""
     notees = [m for m in matieres if m["note"] is not None]
-    poids = sum(m["coef"] for m in notees)
-    return sum(m["note"] * m["coef"] for m in notees) / poids if poids else None
+    return sum(m["note"] for m in notees) / len(notees) if notees else None
 
 
 def statut(note, passage):
@@ -752,13 +785,19 @@ def fmt(valeur, decimales=None, vide=""):
 
 # ---------- Export ----------
 
-def tableau_export(matieres, passage):
-    """Lignes du bulletin : en-tête, une ligne par matière, puis moyenne et reprises."""
-    lignes = [["Matière", "Coef", "Note", "Statut"]]
-    for m in matieres:
-        lignes.append([m["nom"], fmt(m["coef"]), fmt(m["note"], vide=NULL), statut(m["note"], passage)])
-    lignes.append(["Moyenne", "", fmt(moyenne(matieres), 2, "—"), ""])
-    lignes.append(["Reprises", "", "", texte_reprises(nb_reprises(matieres, passage))])
+def tableau_export(periodes, passage):
+    """Un CSV combiné, avec les notes et la moyenne de chaque session."""
+    lignes = [["Session", "Matière", "Note", "Statut"]]
+    toutes_matieres = []
+    for periode in periodes:
+        matieres = periode["matieres"]
+        toutes_matieres.extend(matieres)
+        for matiere in matieres:
+            lignes.append([
+                periode["nom"], matiere["nom"], fmt(matiere["note"], vide=NULL),
+                statut(matiere["note"], passage)])
+        lignes.append([periode["nom"], "Moyenne", fmt(moyenne(matieres), 2, "—"), ""])
+    lignes.append(["Générale", "Moyenne générale", fmt(moyenne(toutes_matieres), 2, "—"), ""])
     return lignes
 
 
@@ -820,8 +859,8 @@ def exporter_json_pwa(base, chemin):
         json.dump(donnees_pwa(base), fichier, ensure_ascii=False, indent=2)
 
 
-def exporter_pdf(matieres, nom, niveau, passage, chemin):
-    """Bulletin PDF mis en page sous forme de tableaux (fpdf2, inclus dans l'exécutable)."""
+def exporter_pdf(periodes, nom, niveau, passage, chemin):
+    """Bulletin PDF combinant les sessions, leurs moyennes et la moyenne générale."""
     from fpdf import FPDF
 
     def latin1(texte):  # les polices intégrées de fpdf ne couvrent que le latin-1
@@ -872,59 +911,84 @@ def exporter_pdf(matieres, nom, niveau, passage, chemin):
         pdf.ln()
     pdf.ln(8)
 
-    # Tableau des notes
-    colonnes = [("N°", 0.08), ("Matière", 0.42), ("Coefficient", 0.15), ("Note", 0.15), ("Statut", 0.20)]
-    for titre, part in colonnes:
-        case(L * part, titre, gras=True, couleur="#ffffff", fond=BLEU)
-    pdf.ln()
-    for i, m in enumerate(matieres, start=1):
-        fond = FOND_ALTERNE if i % 2 == 0 else "#ffffff"
-        etat = statut(m["note"], passage)
-        valeurs = [(i, "#000000"), (m["nom"], "#000000"), (fmt(m["coef"]), "#000000"),
-                   (fmt(m["note"], vide=NULL), GRIS if m["note"] is None else "#000000"),
-                   (etat, couleur_texte(etat))]
-        for (texte, couleur), (titre, part) in zip(valeurs, colonnes):
-            case(L * part, texte, gras=titre == "Statut" and m["note"] is not None,
-                 couleur=couleur, fond=fond, align="L" if titre == "Matière" else "C")
-        pdf.ln()
-    pdf.ln(8)
+    colonnes = [("Matière", 0.58), ("Note", 0.20), ("Statut", 0.22)]
 
-    # Résultats
-    moy = moyenne(matieres)
-    reprises = nb_reprises(matieres, passage)
-    attente = sum(1 for m in matieres if m["note"] is None)
-    resultats = [
-        ("Moyenne générale", "—" if moy is None else fmt(moy, 2),
-         GRIS if moy is None else (VERT if moy >= passage else ROUGE)),
-        ("Reprises", texte_reprises(reprises), VERT if reprises == 0 else ROUGE),
-        ("Matières en attente de note", str(attente), "#000000"),
-    ]
+    def entete_tableau():
+        for titre, part in colonnes:
+            case(L * part, titre, gras=True, couleur="#ffffff", fond=BLEU)
+        pdf.ln()
+
+    toutes_matieres = []
+    for periode in periodes:
+        matieres = periode["matieres"]
+        toutes_matieres.extend(matieres)
+        if pdf.get_y() + 26 > pdf.h - pdf.b_margin:
+            pdf.add_page()
+        pdf.set_fill_color(*rgb(BLEU))
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(L, 10, latin1(periode["nom"]), fill=True)
+        pdf.ln()
+        entete_tableau()
+        for i, matiere in enumerate(matieres, start=1):
+            if pdf.get_y() + 8 > pdf.h - pdf.b_margin:
+                pdf.add_page()
+                entete_tableau()
+            fond = FOND_ALTERNE if i % 2 == 0 else "#ffffff"
+            etat = statut(matiere["note"], passage)
+            valeurs = [
+                (matiere["nom"], "#000000"),
+                (fmt(matiere["note"], vide=NULL),
+                 GRIS if matiere["note"] is None else "#000000"),
+                (etat, couleur_texte(etat)),
+            ]
+            for (texte, couleur), (titre, part) in zip(valeurs, colonnes):
+                case(L * part, texte, gras=titre == "Statut" and matiere["note"] is not None,
+                     couleur=couleur, fond=fond, align="L" if titre == "Matière" else "C")
+            pdf.ln()
+        pdf.ln(2)
+        moyenne_session = moyenne(matieres)
+        couleur_moyenne = (GRIS if moyenne_session is None
+                           else VERT if moyenne_session >= passage else ROUGE)
+        case(L * 0.70, f"Moyenne de {periode['nom']}", gras=True, fond=FOND_ENTETE, align="L")
+        case(L * 0.30, "—" if moyenne_session is None else fmt(moyenne_session, 2),
+             gras=True, couleur=couleur_moyenne)
+        pdf.ln(8)
+
+    moyenne_generale = moyenne(toutes_matieres)
+    if pdf.get_y() + 16 > pdf.h - pdf.b_margin:
+        pdf.add_page()
     pdf.set_x(pdf.l_margin + L * 0.4)
-    case(L * 0.6, "Résultats", gras=True, couleur="#ffffff", fond=BLEU)
+    case(L * 0.6, "Résultats généraux", gras=True, couleur="#ffffff", fond=BLEU)
     pdf.ln()
-    for lib, val, couleur in resultats:
+    reprises_generales = nb_reprises(toutes_matieres, passage)
+    resultats = [
+        ("Moyenne générale", "—" if moyenne_generale is None else fmt(moyenne_generale, 2),
+         GRIS if moyenne_generale is None else VERT if moyenne_generale >= passage else ROUGE),
+        ("Reprises", texte_reprises(reprises_generales),
+         VERT if reprises_generales == 0 else ROUGE),
+        ("Matières en attente de note",
+         str(sum(1 for matiere in toutes_matieres if matiere["note"] is None)), "#000000"),
+    ]
+    for libelle, valeur_resultat, couleur in resultats:
         pdf.set_x(pdf.l_margin + L * 0.4)
-        case(L * 0.35, lib, gras=True, fond=FOND_ENTETE, align="L")
-        case(L * 0.25, val, gras=True, couleur=couleur)
+        case(L * 0.35, libelle, gras=True, fond=FOND_ENTETE, align="L")
+        case(L * 0.25, valeur_resultat, gras=True, couleur=couleur)
         pdf.ln()
 
-    # Légende
     pdf.ln(10)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*rgb(GRIS))
     pdf.multi_cell(L, 4.5, latin1(
-        f"Note de passage en {niveau} : {passage}. Une matière notée en dessous est une reprise.\n"
-        f"{NULL} : note pas encore connue, non comptée dans la moyenne. Coefficient de chaque matière : {COEF_DEFAUT}."))
+        f"Note de passage en {niveau} : {passage}. Une note inférieure est une reprise.\n"
+        f"{NULL} : note pas encore connue, non comptée dans les moyennes. Chaque matière a le même poids."))
     pdf.output(str(chemin))
 
 
 # ---------- Import ----------
 
 def lire_csv(chemin):
-    """Lit un bulletin CSV (celui de l'export, ou deux colonnes Matière;Note).
-
-    Renvoie la liste des (matière, note) ; note vaut None pour NULL ou une case vide.
-    """
+    """Lit les anciens CSV à une période et les CSV combinés avec une colonne Session."""
     with open(chemin, newline="", encoding="utf-8-sig") as f:
         contenu = f.read()
     # ";" en priorité : une virgule peut aussi être la décimale d'une note (15,5)
@@ -932,24 +996,33 @@ def lire_csv(chemin):
     separateur = ";" if ";" in premiere else ("\t" if "\t" in premiere else ",")
     lignes = [l for l in csv.reader(contenu.splitlines(), delimiter=separateur) if l and l[0].strip()]
 
-    col_note = 1
-    for l in lignes:  # colonne « Note » d'après l'en-tête, s'il y en a un
-        entete = [c.strip().lower() for c in l]
-        if entete[0] in ("matière", "matiere") and "note" in entete:
-            col_note = entete.index("note")
-            break
+    def normaliser(valeur):
+        return "".join(car for car in unicodedata.normalize("NFD", valeur.casefold())
+                       if unicodedata.category(car) != "Mn").strip()
+
+    entete = [normaliser(cellule) for cellule in lignes[0]]
+    col_nom = next((i for i, valeur in enumerate(entete) if valeur in ("matiere", "subject")), None)
+    col_note = next((i for i, valeur in enumerate(entete) if valeur in ("note", "grade")), None)
+    col_session = next((i for i, valeur in enumerate(entete)
+                        if valeur in ("session", "periode", "period")), None)
+    if col_nom is None or col_note is None:
+        col_nom, col_note, col_session = 0, 1, None
+        debut = 0
+    else:
+        debut = 1
 
     resultat = []
-    for l in lignes:
-        nom = l[0].strip()
-        if nom.lower() in LIGNES_IGNOREES:
+    for ligne in lignes[debut:]:
+        nom = ligne[col_nom].strip() if col_nom < len(ligne) else ""
+        if normaliser(nom) in LIGNES_IGNOREES:
             continue
-        texte = l[col_note] if col_note < len(l) else ""
+        texte = ligne[col_note] if col_note < len(ligne) else ""
+        session = ligne[col_session].strip() if col_session is not None and col_session < len(ligne) else ""
         try:
             note = lire_note(texte)
         except ValueError:
             raise ValueError(f"Note illisible pour « {nom} » : {texte!r}") from None
-        resultat.append((nom, note))
+        resultat.append((session or None, nom, note))
     if not resultat:
         raise ValueError("Aucune matière trouvée dans ce fichier.")
     return resultat
@@ -1399,7 +1472,8 @@ class App(tk.Tk):
         return texte
 
     def tr_periode(self, nom):
-        return self.tr(nom) if nom == PERIODE_INITIALE else nom
+        return self.tr(nom) if nom in (
+            PERIODE_PREMIERE_SESSION, PERIODE_DEUXIEME_SESSION, "Période actuelle") else nom
 
     # --- Mise à l'échelle ---
 
@@ -2458,11 +2532,39 @@ class App(tk.Tk):
             self.informer("Import impossible", f"Ce fichier n'a pas pu être lu : {err}", "erreur")
             return
 
-        existantes = {m["nom"].lower(): m for m in self.matieres}
-        nouvelles = [nom for nom, _ in lues if nom.lower() not in existantes]
-        maj = len(lues) - len(nouvelles)
-        resume = f"{len(lues)} matière(s) trouvée(s) :\n•  {len(nouvelles)} nouvelle(s)\n•  {maj} déjà présente(s)"
-        if maj:
+        periode_active = self.base.periode_active()
+        groupes = {}
+        for session, nom, note in lues:
+            nom_session = session or periode_active["nom"]
+            groupes.setdefault(nom_session.casefold(), {"nom": nom_session, "matieres": []})
+            groupes[nom_session.casefold()]["matieres"].append((nom, note))
+
+        periodes = {periode["nom"].casefold(): periode for periode in self.base.periodes()}
+        nouvelles = 0
+        mises_a_jour = 0
+        nouvelles_periodes = 0
+        for cle, groupe in groupes.items():
+            periode = periodes.get(cle)
+            if periode is None:
+                nouvelles_periodes += 1
+                noms_existants = set()
+            else:
+                noms_existants = {
+                    matiere["nom"].casefold()
+                    for matiere in self.base.matieres(periode["id"])
+                }
+            for nom, _ in groupe["matieres"]:
+                if nom.casefold() in noms_existants:
+                    mises_a_jour += 1
+                else:
+                    nouvelles += 1
+                    noms_existants.add(nom.casefold())
+
+        resume = (f"{len(lues)} matière(s) trouvée(s) :\n•  {nouvelles} nouvelle(s)\n"
+                  f"•  {mises_a_jour} déjà présente(s)")
+        if nouvelles_periodes:
+            resume += f"\n•  {nouvelles_periodes} nouvelle(s) session(s)"
+        if mises_a_jour:
             resume += " : leur note sera remplacée"
         if (self.parametres["confirmer_import"] == "oui"
                 and not self.confirmer("Importer ce bulletin ?", resume, "Importer")):
@@ -2471,22 +2573,34 @@ class App(tk.Tk):
         if not self.enregistrer(silencieux=True):
             return
         try:
-            for nom, note in lues:
-                m = existantes.get(nom.lower())
-                if m is None:
-                    id_ = self.base.ajouter_matiere(nom, COEF_DEFAUT)
-                    m = {"id": id_, "nom": nom, "coef": COEF_DEFAUT, "note": None}
-                    self.matieres.append(m)
-                    existantes[nom.lower()] = m
-                m["note"] = note
-                self.en_attente.pop(m["nom"], None)
-                self.base.changer_note(m["nom"], note)
+            for cle, groupe in groupes.items():
+                periode = periodes.get(cle)
+                periode_id = (periode["id"] if periode is not None
+                              else self.base.ajouter_periode(groupe["nom"]))
+                existantes = {
+                    matiere["nom"].casefold(): matiere
+                    for matiere in self.base.matieres(periode_id)
+                }
+                for nom, note in groupe["matieres"]:
+                    matiere = existantes.get(nom.casefold())
+                    if matiere is None:
+                        id_ = self.base.ajouter_matiere(nom, COEF_DEFAUT, periode_id)
+                        matiere = {"id": id_, "nom": nom, "coef": COEF_DEFAUT, "note": None}
+                        existantes[nom.casefold()] = matiere
+                    matiere["note"] = note
+                    self.en_attente.pop(matiere["nom"], None)
+                    self.base.changer_note(nom, note, periode_id)
         except (OSError, sqlite3.Error, ValueError, RuntimeError) as err:
-            self.matieres = self.base.matieres()
+            if self.base.periode_active()["id"] != periode_active["id"]:
+                self.base.activer_periode(periode_active["id"])
+            self.matieres = self.base.matieres(periode_active["id"])
             self.informer("Import interrompu", f"Le bulletin n'a pas pu être importé en entier : {err}",
                           "erreur")
             self.dessiner()
             return
+        if self.base.periode_active()["id"] != periode_active["id"]:
+            self.base.activer_periode(periode_active["id"])
+        self.matieres = self.base.matieres(periode_active["id"])
         self.dessiner()
 
     # --- Export ---
@@ -2495,8 +2609,9 @@ class App(tk.Tk):
         fen, cadre = self.dialogue("Exporter")
         self.texte(cadre, "Exporter votre bulletin", font=self.titre_barre).pack(anchor="w")
         self.texte(cadre, "Choisissez le format du fichier :", fg=DISCRET).pack(anchor="w", pady=(2, 14))
+        a_exporter = any(self.base.matieres(periode["id"]) for periode in self.base.periodes())
         formats = [("PDF  ·  à imprimer ou envoyer", "pdf"),
-                   ("CSV  ·  LibreOffice / Excel", "csv")] if self.matieres else []
+                   ("CSV  ·  LibreOffice / Excel", "csv")] if a_exporter else []
         formats.append(("JSON  ·  toutes les périodes (application mobile)", "json"))
         for texte, format_ in formats:
             Bouton(cadre, texte, lambda f=format_: (fen.destroy(), self.exporter(f)), "secondaire",
@@ -2522,12 +2637,16 @@ class App(tk.Tk):
         if not chemin:
             return
         try:
+            periodes = [{
+                "nom": periode["nom"],
+                "matieres": self.base.matieres(periode["id"]),
+            } for periode in self.base.periodes()]
             if format_ == "csv":
-                exporter_csv(tableau_export(self.matieres, self.passage), chemin)
+                exporter_csv(tableau_export(periodes, self.passage), chemin)
             elif format_ == "json":
                 exporter_json_pwa(self.base, chemin)
             else:
-                exporter_pdf(self.matieres, self.nom, self.niveau, self.passage, chemin)
+                exporter_pdf(periodes, self.nom, self.niveau, self.passage, chemin)
         except ImportError:
             self.informer("Export impossible", "L'export PDF nécessite le module fpdf2 (pip install fpdf2).", "erreur")
             return

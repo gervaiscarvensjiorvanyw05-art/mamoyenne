@@ -1,11 +1,14 @@
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_PERIOD_NAMES,
   PASS_MARKS,
   SORT_MODES,
   average,
+  averageAcrossPeriods,
   countRetakes,
   createEmptyState,
-  exportCsv,
+  createInitialPeriods,
+  exportPeriodsCsv,
   filterSubjects,
   newId,
   normalizeState,
@@ -30,6 +33,9 @@ const TEXT = {
     "your-level": "Votre niveau",
     start: "Commencer",
     period: "Période",
+    "session-one": "1ère session",
+    "session-two": "2ème session",
+    "general-session": "Générale",
     "manage-periods": "Gérer les périodes",
     average: "Moyenne",
     "out-of-100": "sur 100",
@@ -49,7 +55,8 @@ const TEXT = {
     "empty-start": "Ajoutez votre première matière pour commencer.",
     "empty-search": "Aucune matière ne correspond à cette recherche.",
     "import-csv": "Importer un CSV",
-    "export-csv": "Exporter la période en CSV",
+    "export-csv": "Exporter toutes les sessions en CSV",
+    "export-pdf": "Imprimer / Enregistrer en PDF",
     "local-data-note": "Vos données restent sur cet appareil. Exportez une sauvegarde pour les transférer.",
     "subject-name": "Nom de la matière",
     cancel: "Annuler",
@@ -69,6 +76,13 @@ const TEXT = {
     "export-backup": "Télécharger une sauvegarde complète",
     "import-backup": "Restaurer une sauvegarde JSON",
     "clear-data": "Effacer le profil et toutes les notes",
+    "print-average": "Moyenne générale / 100",
+    "print-retakes": "Reprises",
+    "print-subject-count": "Matières",
+    "print-subject": "Matière",
+    "print-grade-report": "Bulletin de notes",
+    "print-period-average": (name, mean) => `Moyenne de ${name} : ${mean} / 100`,
+    "print-generated": (date) => `Généré le ${date}`,
     "backup-note": "Les sauvegardes sont stockées ou téléchargées à votre initiative. Aucune donnée n'est envoyée sur Internet.",
     note: "Note",
     status: "Statut",
@@ -92,12 +106,13 @@ const TEXT = {
     "period-created": "Période créée et activée.",
     "period-renamed": "Période renommée.",
     "period-deleted": "Période supprimée.",
-    "csv-imported": (count) => `${count} matière${count > 1 ? "s importées" : " importée"}.`,
-    "csv-exported": "Fichier CSV téléchargé.",
+    "csv-imported": (count, periods) =>
+      `${count} matière${count > 1 ? "s importées" : " importée"} dans ${periods} session(s).`,
+    "csv-exported": "Le CSV des sessions a été téléchargé.",
     "backup-exported": "Sauvegarde téléchargée.",
     "backup-imported": "Sauvegarde restaurée.",
-    "confirm-import": (newCount, updatedCount) =>
-      `Importer ${newCount} nouvelle(s) matière(s) et remplacer ${updatedCount} note(s) existante(s) ?`,
+    "confirm-import": (newCount, updatedCount, periods) =>
+      `Importer ${newCount} nouvelle(s) matière(s) et remplacer ${updatedCount} note(s) existante(s) dans ${periods} session(s) ?`,
     "confirm-delete-subject": (name) => `Supprimer « ${name} » ?`,
     "confirm-delete-period": (name) => `Supprimer « ${name} » et toutes ses matières ?`,
     "confirm-clear": "Effacer le profil, les périodes et toutes les matières de cet appareil ?",
@@ -123,6 +138,9 @@ const TEXT = {
     "your-level": "Your level",
     start: "Get started",
     period: "Period",
+    "session-one": "1st session",
+    "session-two": "2nd session",
+    "general-session": "Overall",
     "manage-periods": "Manage periods",
     average: "Average",
     "out-of-100": "out of 100",
@@ -142,7 +160,8 @@ const TEXT = {
     "empty-start": "Add your first subject to get started.",
     "empty-search": "No subjects match this search.",
     "import-csv": "Import CSV",
-    "export-csv": "Export period as CSV",
+    "export-csv": "Export all sessions as CSV",
+    "export-pdf": "Print / Save as PDF",
     "local-data-note": "Your data stays on this device. Export a backup to transfer it.",
     "subject-name": "Subject name",
     cancel: "Cancel",
@@ -162,6 +181,13 @@ const TEXT = {
     "export-backup": "Download full backup",
     "import-backup": "Restore JSON backup",
     "clear-data": "Delete profile and all grades",
+    "print-average": "Overall average / 100",
+    "print-retakes": "Retakes",
+    "print-subject-count": "Subjects",
+    "print-subject": "Subject",
+    "print-grade-report": "Grade report",
+    "print-period-average": (name, mean) => `${name} average: ${mean} / 100`,
+    "print-generated": (date) => `Generated on ${date}`,
     "backup-note": "Backups are stored or downloaded at your request. No data is sent over the Internet.",
     note: "Grade",
     status: "Status",
@@ -185,12 +211,13 @@ const TEXT = {
     "period-created": "Period created and activated.",
     "period-renamed": "Period renamed.",
     "period-deleted": "Period deleted.",
-    "csv-imported": (count) => `${count} subject${count === 1 ? "" : "s"} imported.`,
-    "csv-exported": "CSV file downloaded.",
+    "csv-imported": (count, periods) =>
+      `${count} subject${count === 1 ? "" : "s"} imported into ${periods} session(s).`,
+    "csv-exported": "Sessions CSV downloaded.",
     "backup-exported": "Backup downloaded.",
     "backup-imported": "Backup restored.",
-    "confirm-import": (newCount, updatedCount) =>
-      `Import ${newCount} new subject(s) and replace ${updatedCount} existing grade(s)?`,
+    "confirm-import": (newCount, updatedCount, periods) =>
+      `Import ${newCount} new subject(s) and replace ${updatedCount} existing grade(s) in ${periods} session(s)?`,
     "confirm-delete-subject": (name) => `Delete “${name}”?`,
     "confirm-delete-period": (name) => `Delete “${name}” and all its subjects?`,
     "confirm-clear": "Delete the profile, periods, and all subjects from this device?",
@@ -264,6 +291,11 @@ function activePeriod() {
   return period;
 }
 
+function periodLabel(name) {
+  const index = DEFAULT_PERIOD_NAMES.findIndex((periodName) => periodName === name);
+  return index < 0 ? name : t(index === 0 ? "session-one" : "session-two");
+}
+
 function updateStaticText() {
   document.documentElement.lang = state.settings.language;
   document.title = "MaMoyenne";
@@ -291,7 +323,7 @@ function renderPeriods() {
   const options = state.periods.map((period) => {
     const option = document.createElement("option");
     option.value = period.id;
-    option.textContent = period.name;
+    option.textContent = periodLabel(period.name);
     option.selected = period.id === selected;
     return option;
   });
@@ -300,7 +332,7 @@ function renderPeriods() {
   const manageOptions = state.periods.map((period) => {
     const option = document.createElement("option");
     option.value = period.id;
-    option.textContent = period.name;
+    option.textContent = periodLabel(period.name);
     option.selected = period.id === selected;
     return option;
   });
@@ -537,6 +569,74 @@ function downloadFile(filename, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function renderPrintReport() {
+  const passMark = PASS_MARKS[state.profile.level];
+  const locale = state.settings.language;
+  const formatNumber = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  const allSubjects = state.periods.flatMap((period) => period.subjects);
+  const mean = averageAcrossPeriods(state.periods);
+
+  byId("print-title").textContent = t("print-grade-report");
+  byId("print-subtitle").textContent = `${state.profile.name} · ${state.profile.level}`;
+  byId("print-average").textContent = mean === null ? "—" : formatNumber.format(mean);
+  byId("print-retakes").textContent = String(countRetakes(allSubjects, passMark));
+  byId("print-subject-count").textContent = String(allSubjects.length);
+
+  const sections = state.periods.map((period) => {
+    const section = document.createElement("section");
+    section.className = "print-period";
+    const heading = document.createElement("h2");
+    const label = periodLabel(period.name);
+    heading.textContent = label;
+    const meanText = document.createElement("p");
+    const periodMean = average(period.subjects);
+    meanText.textContent = t(
+      "print-period-average",
+      label,
+      periodMean === null ? "—" : formatNumber.format(periodMean),
+    );
+    const table = document.createElement("table");
+    table.className = "print-table";
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    for (const key of ["print-subject", "note", "status"]) {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = t(key);
+      headerRow.append(cell);
+    }
+    thead.append(headerRow);
+    const tbody = document.createElement("tbody");
+    const rows = sortSubjects(period.subjects, state.sortMode).map((subject) => {
+      const row = document.createElement("tr");
+      const name = document.createElement("th");
+      name.scope = "row";
+      name.textContent = subject.name;
+      const grade = document.createElement("td");
+      grade.textContent = subject.grade === null
+        ? "—"
+        : `${formatNumber.format(subject.grade)} / 100`;
+      const status = document.createElement("td");
+      status.textContent = subject.grade === null
+        ? t("pending")
+        : subject.grade >= passMark ? t("validated") : t("retake");
+      row.append(name, grade, status);
+      return row;
+    });
+    tbody.replaceChildren(...rows);
+    table.append(thead, tbody);
+    section.append(heading, meanText, table);
+    return section;
+  });
+  byId("print-periods").replaceChildren(...sections);
+
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(new Date());
+  byId("print-footer").textContent = t("print-generated", date);
+}
+
 function safeFilename(value) {
   return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "periode";
@@ -551,13 +651,10 @@ function bindEvents() {
     const name = byId("profile-name").value.trim();
     const level = byId("profile-level").value;
     if (!name || !PASS_MARKS[level]) return;
-    const language = state.settings.language;
     await updateState(() => {
       state.profile = { name, level };
-      const periodName = language === "fr" ? "Période actuelle" : "Current period";
-      const period = { id: newId(), name: periodName, subjects: [] };
-      state.periods = [period];
-      state.activePeriodId = period.id;
+      state.periods = createInitialPeriods();
+      state.activePeriodId = state.periods[0].id;
     });
   });
 
@@ -677,41 +774,74 @@ function bindEvents() {
   });
 
   byId("export-csv").addEventListener("click", () => {
-    const period = activePeriod();
-    downloadFile(`${safeFilename(period.name)}.csv`,
-      exportCsv(period.subjects, PASS_MARKS[state.profile.level]), "text/csv;charset=utf-8");
+    downloadFile(
+      `mamoyenne-${safeFilename(state.profile.name)}-sessions.csv`,
+      exportPeriodsCsv(state.periods, PASS_MARKS[state.profile.level]),
+      "text/csv;charset=utf-8",
+    );
     showToast(t("csv-exported"));
+  });
+  byId("export-pdf").addEventListener("click", () => {
+    renderPrintReport();
+    const previousTitle = document.title;
+    document.title = `${t("print-grade-report")} - ${safeFilename(state.profile.name)}`;
+    try {
+      window.print();
+    } finally {
+      document.title = previousTitle;
+    }
   });
   byId("csv-input").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
       const imported = parseCsvImport(await file.text());
-      const existing = new Map(activePeriod().subjects.map((subject) =>
-        [subject.name.toLocaleLowerCase(), subject]));
+      const groups = new Map();
+      for (const item of imported) {
+        const name = item.session || activePeriod().name;
+        const key = name.trim().toLocaleLowerCase();
+        if (!groups.has(key)) groups.set(key, { name, subjects: [] });
+        groups.get(key).subjects.push(item);
+      }
+      const periods = new Map(state.periods.map((period) =>
+        [period.name.trim().toLocaleLowerCase(), period]));
       let added = 0;
       let updated = 0;
-      for (const item of imported) {
-        if (existing.has(item.name.toLocaleLowerCase())) updated += 1;
-        else added += 1;
-      }
-      if (!window.confirm(t("confirm-import", added, updated))) return;
-      await updateState(() => {
-        const period = activePeriod();
-        const byName = new Map(period.subjects.map((subject) =>
+      for (const [key, group] of groups) {
+        const existing = new Map((periods.get(key)?.subjects || []).map((subject) =>
           [subject.name.toLocaleLowerCase(), subject]));
-        for (const item of imported) {
-          const current = byName.get(item.name.toLocaleLowerCase());
-          if (current) current.grade = item.grade;
+        for (const item of group.subjects) {
+          if (existing.has(item.name.toLocaleLowerCase())) updated += 1;
           else {
-            const addedOrder = period.subjects.reduce(
-              (largest, subject) => Math.max(largest, subject.addedOrder ?? -1), -1) + 1;
-            const subject = { id: newId(), name: item.name, grade: item.grade, addedOrder };
-            period.subjects.push(subject);
-            byName.set(item.name.toLocaleLowerCase(), subject);
+            added += 1;
+            existing.set(item.name.toLocaleLowerCase(), item);
           }
         }
-      }, t("csv-imported", imported.length));
+      }
+      if (!window.confirm(t("confirm-import", added, updated, groups.size))) return;
+      await updateState(() => {
+        for (const [key, group] of groups) {
+          let period = state.periods.find((item) =>
+            item.name.trim().toLocaleLowerCase() === key);
+          if (!period) {
+            period = { id: newId(), name: group.name, subjects: [] };
+            state.periods.push(period);
+          }
+          const byName = new Map(period.subjects.map((subject) =>
+            [subject.name.toLocaleLowerCase(), subject]));
+          for (const item of group.subjects) {
+            const current = byName.get(item.name.toLocaleLowerCase());
+            if (current) current.grade = item.grade;
+            else {
+              const addedOrder = period.subjects.reduce(
+                (largest, subject) => Math.max(largest, subject.addedOrder ?? -1), -1) + 1;
+              const subject = { id: newId(), name: item.name, grade: item.grade, addedOrder };
+              period.subjects.push(subject);
+              byName.set(item.name.toLocaleLowerCase(), subject);
+            }
+          }
+        }
+      }, t("csv-imported", imported.length, groups.size));
     } catch (error) {
       showToast(error.message || t("bad-file"));
     } finally {
@@ -775,6 +905,9 @@ async function start() {
     await openDatabase();
     const stored = await readStoredState();
     state = stored === null ? createEmptyState() : normalizeState(stored);
+    if (stored !== null && JSON.stringify(state) !== JSON.stringify(stored)) {
+      await writeStoredState();
+    }
     bindEvents();
     render();
     if ("serviceWorker" in navigator) {

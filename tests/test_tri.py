@@ -67,6 +67,49 @@ class TrierMatieresTests(unittest.TestCase):
 
 
 class BaseOrdreTests(unittest.TestCase):
+    def test_suppression_volontaire_dune_session_reste_apres_redemarrage(self):
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "moyenne.db"
+            base = Base(chemin)
+            base.supprimer_periode(base.periodes()[1]["id"])
+            base.cnx.close()
+
+            base = Base(chemin)
+            try:
+                self.assertEqual([periode["nom"] for periode in base.periodes()],
+                                 ["1ère session"])
+            finally:
+                base.cnx.close()
+
+    def test_migration_une_periode_renomme_et_ajoute_la_seconde_sans_perdre_les_notes(self):
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "moyenne.db"
+            base = Base(chemin)
+            premiere_id = base.periode_active()["id"]
+            seconde_id = base.periodes()[1]["id"]
+            base.enregistrer_profil("L2", "Test")
+            base.ajouter_matiere("Maths", 100)
+            base.changer_note("Maths", 84)
+            base.supprimer_periode(seconde_id)
+            base.renommer_periode(premiere_id, "Période actuelle")
+            base.cnx.execute("PRAGMA user_version = 0")
+            base.cnx.close()
+
+            base = Base(chemin)
+            try:
+                self.assertEqual(
+                    [periode["nom"] for periode in base.periodes()],
+                    ["1ère session", "2ème session"],
+                )
+                self.assertEqual(base.periodes()[0]["id"], premiere_id)
+                self.assertEqual(base.periode_active()["id"], premiere_id)
+                self.assertEqual([(item["nom"], item["note"]) for item in base.matieres()],
+                                 [("Maths", 84)])
+                self.assertTrue(any("avant-migration" in file.name
+                                    for file in base.liste_sauvegardes()))
+            finally:
+                base.cnx.close()
+
     def test_ordre_personnalise_et_tri_persistent_apres_reouverture(self):
         with tempfile.TemporaryDirectory() as dossier:
             chemin = Path(dossier) / "moyenne.db"
@@ -112,6 +155,10 @@ class BaseOrdreTests(unittest.TestCase):
             try:
                 self.assertEqual(base.profil(), ("L2", "Test"))
                 self.assertEqual(base.tri_affichage(), TRI_ORDRE_AJOUT)
+                self.assertEqual(
+                    [periode["nom"] for periode in base.periodes()],
+                    ["1ère session", "2ème session"],
+                )
                 self.assertEqual([(m["nom"], m["note"]) for m in base.matieres()],
                                  [("Français", 82), ("Maths", None)])
             finally:

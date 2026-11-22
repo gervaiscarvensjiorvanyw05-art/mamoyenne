@@ -563,6 +563,139 @@ dialog::backdrop {
   display: none !important;
 }
 
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    background: #fff !important;
+    color: #111 !important;
+    font: 10pt/1.4 Arial, sans-serif;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #print-report,
+  #print-report * {
+    visibility: visible !important;
+  }
+
+  #print-report[hidden] {
+    display: block !important;
+  }
+
+  #print-report {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    color: #111;
+    background: #fff;
+  }
+
+  .print-header {
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #3158c5;
+  }
+
+  .print-header h1 {
+    margin: 0 0 5px;
+    color: #203d8c;
+    font-size: 22pt;
+  }
+
+  .print-header p {
+    margin: 0;
+    color: #444;
+    font-size: 11pt;
+  }
+
+  .print-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 0 0 20px;
+  }
+
+  .print-summary > div {
+    padding: 10px;
+    border: 1px solid #d5dbea;
+    border-radius: 6px;
+  }
+
+  .print-summary dt {
+    color: #444;
+    font-size: 9pt;
+  }
+
+  .print-summary dd {
+    margin: 3px 0 0;
+    color: #203d8c;
+    font-size: 16pt;
+    font-weight: 700;
+  }
+
+  .print-period {
+    margin-top: 18px;
+  }
+
+  .print-period h2 {
+    margin: 0 0 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #d5dbea;
+    color: #203d8c;
+    font-size: 14pt;
+    break-after: avoid;
+  }
+
+  .print-period > p {
+    margin: 0 0 8px;
+    font-weight: 700;
+  }
+
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-table th,
+  .print-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #d5dbea;
+    text-align: left;
+  }
+
+  .print-table thead {
+    display: table-header-group;
+    background: #e8eefc !important;
+    color: #203d8c;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-table tbody tr {
+    break-inside: avoid;
+  }
+
+  .print-table tbody th {
+    font-weight: 400;
+  }
+
+  .print-footer {
+    margin-top: 20px;
+    color: #555;
+    font-size: 8pt;
+  }
+}
+
 @media (max-width: 620px) {
   .app-shell {
     padding: 12px 14px 24px;

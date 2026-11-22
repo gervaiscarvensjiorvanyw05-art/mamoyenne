@@ -5,7 +5,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from moyenne import App, Base, TRI_PERSONNALISE, donnees_pwa
+from moyenne import (
+    App,
+    Base,
+    TRI_PERSONNALISE,
+    donnees_pwa,
+    exporter_pdf,
+    lire_csv,
+    moyenne,
+    tableau_export,
+)
 
 
 class DonneesTests(unittest.TestCase):
@@ -17,6 +26,56 @@ class DonneesTests(unittest.TestCase):
     def tearDown(self):
         self.base.cnx.close()
         self.dossier.cleanup()
+
+    def test_nouvelle_base_commence_avec_deux_sessions(self):
+        self.assertEqual(
+            [periode["nom"] for periode in self.base.periodes()],
+            ["1ère session", "2ème session"],
+        )
+        self.assertEqual(self.base.periode_active()["nom"], "1ère session")
+
+    def test_moyenne_simple_ne_pondere_pas_avec_les_coefficients(self):
+        self.assertEqual(moyenne([
+            {"note": 50, "coef": 1},
+            {"note": 100, "coef": 100},
+            {"note": None, "coef": 100},
+        ]), 75)
+
+    def test_csv_combine_exporte_les_sessions_et_se_reimporte(self):
+        periodes = [
+            {"nom": "1ère session", "matieres": [
+                {"nom": "Maths", "note": 80, "coef": 100},
+                {"nom": "Français", "note": 60, "coef": 100},
+            ]},
+            {"nom": "2ème session", "matieres": [
+                {"nom": "Histoire", "note": 90, "coef": 100},
+            ]},
+        ]
+        lignes = tableau_export(periodes, 70)
+        chemin = Path(self.dossier.name) / "sessions.csv"
+        from moyenne import exporter_csv
+        exporter_csv(lignes, chemin)
+
+        self.assertEqual(lignes[0], ["Session", "Matière", "Note", "Statut"])
+        self.assertIn(["1ère session", "Moyenne", "70,00", ""], lignes)
+        self.assertIn(["2ème session", "Moyenne", "90,00", ""], lignes)
+        self.assertIn(["Générale", "Moyenne générale", "76,67", ""], lignes)
+        self.assertEqual(lire_csv(chemin), [
+            ("1ère session", "Maths", 80),
+            ("1ère session", "Français", 60),
+            ("2ème session", "Histoire", 90),
+        ])
+
+    def test_pdf_consolide_les_sessions(self):
+        chemin = Path(self.dossier.name) / "bulletin.pdf"
+        exporter_pdf([
+            {"nom": "1ère session", "matieres": [{"nom": "Maths", "note": 80, "coef": 100}]},
+            {"nom": "2ème session", "matieres": [{"nom": "Histoire", "note": 60, "coef": 100}]},
+        ], "Test", "L1", 70, chemin)
+
+        contenu = chemin.read_bytes()
+        self.assertTrue(contenu.startswith(b"%PDF-"))
+        self.assertTrue(contenu.rstrip().endswith(b"%%EOF"))
 
     def test_sauvegarde_a_la_fermeture_si_modifie_et_retenue_de_trois(self):
         self.assertIsNone(self.base.sauvegarder_fermeture())
@@ -95,7 +154,8 @@ class DonneesTests(unittest.TestCase):
         self.base.enregistrer_profil("L2", "Test")
         self.base.ajouter_matiere("Maths", 100)
         self.base.changer_note("Maths", 84)
-        seconde = self.base.ajouter_periode("Semestre 2")
+        seconde = self.base.periodes()[1]["id"]
+        self.base.activer_periode(seconde)
         self.base.ajouter_matiere("Histoire", 100)
         self.base.enregistrer_tri(TRI_PERSONNALISE)
         self.base.enregistrer_parametres({"langue": "en", "theme": "sombre", "taille_texte": "grande"})
@@ -109,6 +169,7 @@ class DonneesTests(unittest.TestCase):
             "language": "en", "theme": "dark", "textSize": "large"})
         self.assertEqual(sauvegarde["periods"][0]["id"], str(premiere))
         self.assertEqual(sauvegarde["periods"][0]["subjects"][0]["grade"], 84)
+        self.assertEqual(sauvegarde["periods"][1]["id"], str(seconde))
         self.assertEqual(sauvegarde["periods"][1]["subjects"][0]["name"], "Histoire")
 
     def test_nombre_de_sauvegardes_regle_la_retenue(self):
@@ -179,7 +240,8 @@ class DonneesTests(unittest.TestCase):
 
     def test_supprimer_periode_active_bascule_sur_une_autre_et_supprime_ses_matieres(self):
         initiale = self.base.periode_active()["id"]
-        seconde = self.base.ajouter_periode("Semestre 2")
+        seconde = self.base.periodes()[1]["id"]
+        self.base.activer_periode(seconde)
         self.base.ajouter_matiere("Physique", 100)
 
         self.base.supprimer_periode(seconde)
@@ -250,6 +312,49 @@ class DonneesTests(unittest.TestCase):
         active = self.base.matieres()
         self.assertEqual([(m["nom"], m["note"]) for m in active], [("Déjà", 90), ("Nouvelle", 80)])
         self.assertEqual(self.base.matieres(initiale)[0]["note"], 30)
+
+    def test_import_csv_combine_repartit_les_notes_par_session(self):
+        premiere, seconde = self.base.periodes()
+        chemin_csv = Path(self.dossier.name) / "sessions.csv"
+        chemin_csv.write_text(
+            "Session;Matière;Note;Statut\n"
+            "1ère session;Maths;84;Validé\n"
+            "2ème session;Maths;62;Reprise\n"
+            "1ère session;Moyenne;84,00;\n"
+            "2ème session;Moyenne;62,00;\n"
+            "Générale;Moyenne générale;73,00;\n",
+            encoding="utf-8-sig",
+        )
+        base = self.base
+
+        class FausseApp:
+            def __init__(self):
+                self.base = base
+                self.matieres = base.matieres()
+                self.en_attente = {}
+                self.parametres = base.parametres()
+
+            def confirmer(self, *args, **kwargs):
+                return True
+
+            def informer(self, *args, **kwargs):
+                raise AssertionError("L'import ne devrait pas afficher d'erreur.")
+
+            def tr(self, texte):
+                return texte
+
+            def enregistrer(self, **kwargs):
+                return True
+
+            def dessiner(self):
+                pass
+
+        with patch("moyenne.filedialog.askopenfilename", return_value=str(chemin_csv)):
+            App.importer(FausseApp())
+
+        self.assertEqual(self.base.periode_active()["id"], premiere["id"])
+        self.assertEqual(self.base.matieres(premiere["id"])[0]["note"], 84)
+        self.assertEqual(self.base.matieres(seconde["id"])[0]["note"], 62)
 
 
 if __name__ == "__main__":
