@@ -22,18 +22,61 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="install-button" class="icon-button" type="button" aria-label="Installer MaMoyenne">
-            <span aria-hidden="true">⇧</span>
-            <span data-i18n="install"></span>
-          </button>
-          <button id="profile-button" class="icon-button" type="button" aria-label="Profil">
-            <span aria-hidden="true">♙</span>
-            <span data-i18n="profile-button"></span>
-          </button>
-          <button id="settings-button" class="icon-button" type="button" aria-label="Paramètres">
-            <span aria-hidden="true">⚙</span>
-            <span data-i18n="settings"></span>
-          </button>
+          <details id="action-menu" class="action-menu">
+            <summary id="action-menu-trigger" class="menu-trigger" aria-label="Menu" aria-controls="action-menu-panel">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 7h16M4 12h16M4 17h16"></path>
+              </svg>
+            </summary>
+            <nav id="action-menu-panel" class="action-menu-panel" aria-label="Menu principal">
+              <button id="install-button" class="menu-item" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4"></path>
+                  <path d="M5 17v3h14v-3"></path>
+                </svg>
+                <span data-i18n="install"></span>
+              </button>
+              <button id="profile-button" class="menu-item" type="button" aria-label="Profil" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="8" r="4"></circle>
+                  <path d="M5 21a7 7 0 0 1 14 0"></path>
+                </svg>
+                <span data-i18n="profile-button"></span>
+              </button>
+              <button id="settings-button" class="menu-item" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 7h9m4 0h3M4 17h3m4 0h9"></path>
+                  <circle cx="15" cy="7" r="2"></circle>
+                  <circle cx="9" cy="17" r="2"></circle>
+                </svg>
+                <span data-i18n="settings"></span>
+              </button>
+              <div id="data-menu-divider" class="menu-divider" data-profile-action hidden></div>
+              <p class="menu-heading" data-i18n="data-menu-title" data-profile-action hidden></p>
+              <button id="csv-import-button" class="menu-item" type="button" data-profile-action hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4m0 0L8 8m4-4 4 4"></path>
+                  <path d="M5 17v3h14v-3"></path>
+                </svg>
+                <span data-i18n="import-csv"></span>
+              </button>
+              <input id="csv-input" type="file" accept=".csv,text/csv" hidden>
+              <button id="export-csv" class="menu-item" type="button" data-profile-action hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 4v12m0 0 4-4m-4 4-4-4"></path>
+                  <path d="M5 17v3h14v-3"></path>
+                </svg>
+                <span data-i18n="export-csv"></span>
+              </button>
+              <button id="export-pdf" class="menu-item" type="button" data-profile-action hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <path d="M6 14h12v7H6z"></path>
+                </svg>
+                <span data-i18n="export-pdf"></span>
+              </button>
+            </nav>
+          </details>
         </div>
       </header>
 
@@ -103,7 +146,9 @@
               <input id="search-input" type="search" autocomplete="off">
             </label>
             <button id="add-subject" class="primary-button add-button" type="button">
-              <span aria-hidden="true">＋</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
               <span data-i18n="add-subject"></span>
             </button>
           </section>
@@ -115,14 +160,6 @@
             <span id="empty-description"></span>
           </div>
 
-          <section class="data-actions" aria-label="Import et export">
-            <label class="secondary-button file-button">
-              <span data-i18n="import-csv"></span>
-              <input id="csv-input" type="file" accept=".csv,text/csv">
-            </label>
-            <button id="export-csv" class="secondary-button" type="button" data-i18n="export-csv"></button>
-            <button id="export-pdf" class="secondary-button" type="button" data-i18n="export-pdf"></button>
-          </section>
           <p class="privacy-note" data-i18n="local-data-note"></p>
         </section>
 
@@ -155,7 +192,11 @@
       <form id="subject-form" class="dialog-card">
         <div class="dialog-heading">
           <h2 data-i18n="add-subject"></h2>
-          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">×</button>
+          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
         <label>
           <span data-i18n="subject-name"></span>
@@ -172,7 +213,11 @@
       <form id="period-form" class="dialog-card">
         <div class="dialog-heading">
           <h2 data-i18n="manage-periods"></h2>
-          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">×</button>
+          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
         <label>
           <span data-i18n="period"></span>
@@ -194,7 +239,11 @@
       <form id="settings-form" class="dialog-card">
         <div class="dialog-heading">
           <h2 data-i18n="settings"></h2>
-          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">×</button>
+          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
         <label>
           <span data-i18n="language"></span>
@@ -232,7 +281,11 @@
       <form id="profile-form" class="dialog-card">
         <div class="dialog-heading">
           <h2 data-i18n="edit-profile"></h2>
-          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">×</button>
+          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
         <label>
           <span data-i18n="your-name"></span>
@@ -258,7 +311,11 @@
       <div class="dialog-card">
         <div class="dialog-heading">
           <h2 data-i18n="install"></h2>
-          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">×</button>
+          <button class="close-button" type="button" data-close-dialog aria-label="Fermer">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
         <p id="install-instructions"></p>
         <div class="dialog-actions">
